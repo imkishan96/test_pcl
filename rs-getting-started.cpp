@@ -5,7 +5,7 @@
 
 #include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
 #include <examples/example.hpp> // Include short list of convenience functions for rendering
-#include <GLFW/glfw3.h>
+
 #include <pcl/point_types.h>
 #include <pcl/filters/passthrough.h>
 // extra includes
@@ -43,8 +43,8 @@ struct state {
 using pcl_ptr = pcl::PointCloud<pcl::PointXYZ>::Ptr;
 
 // Helper functions
-//void register_glfw_callbacks(window& app, state& app_state);
-//void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& points);
+void register_glfw_callbacks(window& app, state& app_state);
+void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& points);
 
 pcl_ptr points_to_pcl(const rs2::points& points)
 {
@@ -71,6 +71,7 @@ float3 colors[] { { 0.8f, 0.1f, 0.3f },
                   { 0.1f, 0.9f, 0.5f },
                 };
 
+
 void show_pcl_cloud(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
 {
     pcl::visualization::PCLVisualizer viewer("PCL Viewer");
@@ -88,7 +89,7 @@ int main(int argc, char* argv[]) try
 {   
     window app(1280, 720, "RealSense Pointcloud Example");
     state app_state;
-    //register_glfw_callbacks(app, app_state);
+    register_glfw_callbacks(app, app_state);
 
     rs2::pointcloud pc;
     rs2::points points;
@@ -165,7 +166,7 @@ int main(int argc, char* argv[]) try
             depth = all_frames.get_depth_frame();
             cout << motion_frame.get_motion_data() << "motion data" << endl;
         }
-
+        
 
         points = pc.calculate(depth);
         *pcl_points = *points_to_pcl(points);
@@ -173,7 +174,7 @@ int main(int argc, char* argv[]) try
         *cloud_filtered = *pcl_points;
         //pass.filter(*cloud_filtered);
         //pass_1.filter(*cloud_filtered);
-
+          
         A.push_back(motion_frame.get_motion_data().x);
         A.push_back(motion_frame.get_motion_data().y);
         A.push_back(motion_frame.get_motion_data().z);
@@ -183,7 +184,7 @@ int main(int argc, char* argv[]) try
         //seg.setAxis(Axis_to_find);
         //seg.segment(*inliers, *coefficients);
 
-
+        
         ne.compute(*cloud_normals);
 
         seg_n.segment(*inliers, *coefficients);
@@ -197,11 +198,14 @@ int main(int argc, char* argv[]) try
         PN.push_back(coefficients->values[0]);
         PN.push_back(coefficients->values[1]);
         PN.push_back(coefficients->values[2]);
+
         double dot = A[0] * PN[0] + A[1] * PN[1] + A[2] * PN[2];
         double norm = sqrt( A[0] * A[0] + A[1] * A[1] + A[2] * A[2] ) * sqrt( PN[0]* PN[0] + PN[1] * PN[1] + PN[2] * PN[2] );
         double theta = acos(dot / norm);
+
         cout << theta <<"= Theta (radian)" <<endl;
         cout << theta * 180 / PI << "Theta(degree)" << endl;
+
         
             if (inliers->indices.size() == 0)
         {
@@ -213,15 +217,16 @@ int main(int argc, char* argv[]) try
             << coefficients->values[2] << " "
             << coefficients->values[3] << std::endl;
         //std::cerr << "Model inliers: " << inliers->indices.size() << std::endl;
+
         */
         extract.setIndices(inliers);
         extract.filter(*cloud_p);
         cout << inliers << endl;
-
+        
 
         layers.push_back(pcl_points);
         layers.push_back(cloud_p);
-        //draw_pointcloud(app, app_state, layers);
+        draw_pointcloud(app, app_state, layers);
         layers.clear();
         //A.clear();
         //PN.clear();
@@ -241,4 +246,101 @@ catch (const std::exception & e)
 {
     std::cerr << e.what() << std::endl;
     return EXIT_FAILURE;
+}
+
+// Registers the state variable and callbacks to allow mouse control of the pointcloud
+void register_glfw_callbacks(window& app, state& app_state)
+{
+    app.on_left_mouse = [&](bool pressed)
+    {
+        app_state.ml = pressed;
+    };
+
+    app.on_mouse_scroll = [&](double xoffset, double yoffset)
+    {
+        app_state.offset_x += static_cast<float>(xoffset);
+        app_state.offset_y += static_cast<float>(yoffset);
+    };
+
+    app.on_mouse_move = [&](double x, double y)
+    {
+        if (app_state.ml)
+        {
+            app_state.yaw -= (x - app_state.last_x);
+            app_state.yaw = std::max(app_state.yaw, -120.0);
+            app_state.yaw = std::min(app_state.yaw, +120.0);
+            app_state.pitch += (y - app_state.last_y);
+            app_state.pitch = std::max(app_state.pitch, -80.0);
+            app_state.pitch = std::min(app_state.pitch, +80.0);
+        }
+        app_state.last_x = x;
+        app_state.last_y = y;
+    };
+
+    app.on_key_release = [&](int key)
+    {
+        if (key == 32) // Escape
+        {
+            app_state.yaw = app_state.pitch = 0; app_state.offset_x = app_state.offset_y = 0.0;
+        }
+    };
+}
+
+// Handles all the OpenGL calls needed to display the point cloud
+void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& points)
+{
+    // OpenGL commands that prep screen for the pointcloud
+    glPopMatrix();
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+
+    float width = app.width(), height = app.height();
+
+    glClearColor(153.f / 255, 153.f / 255, 153.f / 255, 1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    gluPerspective(60, width / height, 0.01f, 10.0f);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    gluLookAt(0, 0, 0, 0, 0, 1, 0, -1, 0);
+
+    glTranslatef(0, 0, +0.5f + app_state.offset_y * 0.05f);
+    glRotated(app_state.pitch, 1, 0, 0);
+    glRotated(app_state.yaw, 0, 1, 0);
+    glTranslatef(0, 0, -0.5f);
+
+    glPointSize(width / 640);
+    glEnable(GL_TEXTURE_2D);
+
+    int color = 0;
+
+    for (auto&& pc : points)
+    {
+        auto c = colors[(color++) % (sizeof(colors) / sizeof(float3))];
+
+        glBegin(GL_POINTS);
+        glColor3f(c.x, c.y, c.z);
+
+        /* this segment actually prints the pointcloud */
+        for (int i = 0; i < pc->points.size(); i++)
+        {
+            auto&& p = pc->points[i];
+            if (p.z)
+            {
+                // upload the point and texture coordinates only for points we have depth data for
+                glVertex3f(p.x, p.y, p.z);
+            }
+        }
+
+        glEnd();
+    }
+
+    // OpenGL cleanup
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glPopAttrib();
+    glPushMatrix();
 }
