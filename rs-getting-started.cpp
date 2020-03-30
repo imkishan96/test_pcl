@@ -4,7 +4,7 @@
 
 
 #include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
-#include <../samples/example.hpp> // Include short list of convenience functions for rendering
+#include <examples/example.hpp> // Include short list of convenience functions for rendering
 #include <GLFW/glfw3.h>
 #include <pcl/point_types.h>
 #include <pcl/filters/passthrough.h>
